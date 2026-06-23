@@ -571,6 +571,15 @@ def tiempo_hasta_nivel(nivel_minimo_pct, k):
     return -math.log(proporcion) / k
 
 
+def calcular_bmi(peso_kg, altura_cm):
+    if not peso_kg or not altura_cm:
+        return None
+    altura_m = altura_cm / 100.0
+    if altura_m <= 0:
+        return None
+    return peso_kg / (altura_m * altura_m)
+
+
 # ============================================================
 # UTILIDADES UI
 # ============================================================
@@ -754,7 +763,7 @@ def auth_page():
         "<div class='subtle'>Tu cuenta y tus datos se guardan en este equipo con SQLite, sin servicios externos.</div>",
         unsafe_allow_html=True,
     )
-    st.info("Inicia sesión o crea una cuenta para empezar a organizar el tratamiento de forma sencilla.")
+    st.caption("Inicia sesión o crea una cuenta para empezar a organizar el tratamiento de forma sencilla.")
 
     tab_login, tab_register = st.tabs(["Iniciar sesión", "Crear cuenta"])
 
@@ -857,7 +866,7 @@ def page_dashboard(user):
                     unsafe_allow_html=True,
                 )
         else:
-            st.info("No hay horarios registrados.")
+            st.caption("No hay horarios registrados.")
 
     with col_b:
         st.subheader("Mensajes pendientes")
@@ -999,7 +1008,7 @@ def page_medications(user):
     if not df.empty:
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.info("No hay medicamentos registrados.")
+        st.caption("No hay medicamentos registrados.")
 
     tab_create, tab_edit, tab_delete = st.tabs(["Crear", "Editar", "Eliminar"])
 
@@ -1018,7 +1027,7 @@ def page_medications(user):
 
     with tab_edit:
         if not meds:
-            st.info("Primero debes crear un medicamento.")
+            st.caption("Primero debes crear un medicamento.")
         else:
             options = {f"{m['id']} - {m['nombre']}": m["id"] for m in meds}
             selected_label = st.selectbox("Selecciona medicamento", list(options.keys()), key="edit_med_select")
@@ -1037,7 +1046,7 @@ def page_medications(user):
 
     with tab_delete:
         if not meds:
-            st.info("No hay medicamentos para eliminar.")
+            st.caption("No hay medicamentos para eliminar.")
         else:
             options = {f"{m['id']} - {m['nombre']}": m["id"] for m in meds}
             selected_label = st.selectbox("Medicamento a eliminar", list(options.keys()), key="del_med")
@@ -1060,9 +1069,9 @@ def page_schedules(user):
     if not df.empty:
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.info("No hay horarios registrados.")
+        st.caption("No hay horarios registrados.")
 
-    st.info("Luego podrás marcar si la dosis se tomó o se omitió desde la misma vista.")
+    st.caption("Luego podrás marcar si la dosis se tomó o se omitió desde la misma vista.")
 
     if schedules:
         st.subheader("Próxima dosis")
@@ -1094,7 +1103,7 @@ def page_schedules(user):
                 st.success("Dosis registrada como omitida.")
         st.caption("Se guarda localmente en SQLite con fecha y hora del sistema.")
     else:
-        st.info("No hay horarios disponibles para registrar dosis.")
+        st.caption("No hay horarios disponibles para registrar dosis.")
 
     st.divider()
 
@@ -1150,7 +1159,7 @@ def page_schedules(user):
 
     with tab_create:
         if not meds:
-            st.info("Primero debes crear medicamentos.")
+            st.caption("Primero debes crear medicamentos.")
         else:
             with st.form("create_schedule_form"):
                 data = schedule_inputs(prefix="create_schedule")
@@ -1162,7 +1171,7 @@ def page_schedules(user):
 
     with tab_edit:
         if not schedules:
-            st.info("No hay horarios para editar.")
+            st.caption("No hay horarios para editar.")
         else:
             options = {f"{s['id']} - {s['paciente'] or 'Sin paciente'} - {s['medicamento']}": s for s in schedules}
             selected_label = st.selectbox("Selecciona horario", list(options.keys()), key="edit_schedule_select")
@@ -1177,7 +1186,7 @@ def page_schedules(user):
 
     with tab_delete:
         if not schedules:
-            st.info("No hay horarios para eliminar.")
+            st.caption("No hay horarios para eliminar.")
         else:
             options = {f"{s['id']} - {s['paciente'] or 'Sin paciente'} - {s['medicamento']}": s["id"] for s in schedules}
             selected_label = st.selectbox("Horario a eliminar", list(options.keys()), key="del_schedule")
@@ -1194,7 +1203,7 @@ def page_messages(user):
 
     messages = list_messages(user["id"])
 
-    st.info("No se envía un correo real; todo queda registrado dentro de esta herramienta.")
+    st.caption("No se envía un correo real; todo queda registrado dentro de esta herramienta.")
 
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -1209,7 +1218,7 @@ def page_messages(user):
     if not df.empty:
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.info("No hay mensajes registrados.")
+        st.caption("No hay mensajes registrados.")
 
     tab_create, tab_reply, tab_delete = st.tabs(["Crear mensaje", "Responder", "Eliminar"])
 
@@ -1231,7 +1240,7 @@ def page_messages(user):
     with tab_reply:
         pending = [m for m in messages if m["estado"] != "respondido"]
         if not pending:
-            st.info("No hay mensajes pendientes.")
+            st.caption("No hay mensajes pendientes.")
         else:
             options = {f"{m['id']} - {m['usuario_email']}: {m['texto'][:50]}": m for m in pending}
             selected_label = st.selectbox("Mensaje pendiente", list(options.keys()), key="pending_message_select")
@@ -1250,7 +1259,7 @@ def page_messages(user):
 
     with tab_delete:
         if not messages:
-            st.info("No hay mensajes para eliminar.")
+            st.caption("No hay mensajes para eliminar.")
         else:
             options = {f"{m['id']} - {m['usuario_email']}": m["id"] for m in messages}
             selected_label = st.selectbox("Mensaje a eliminar", list(options.keys()), key="del_msg")
@@ -1267,14 +1276,14 @@ def page_simulation(user):
 
     meds = list_medications(user["id"])
     if not meds:
-        st.info("Primero registra un medicamento para simular su concentración.")
+        st.caption("Primero registra un medicamento para simular su concentración.")
         return
 
     med_options = {f"{m['id']} - {m['nombre']}": m for m in meds}
     selected_label = st.selectbox("Medicamento", list(med_options.keys()), key="calc_medication")
     med = med_options[selected_label]
 
-    st.info("Esta simulación es educativa y ayuda a entender el descenso del medicamento, no reemplaza indicaciones médicas.")
+    st.caption("Esta simulación es educativa y ayuda a entender el descenso del medicamento, no reemplaza indicaciones médicas.")
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -1284,7 +1293,14 @@ def page_simulation(user):
     with c3:
         horas_totales = st.number_input("Horas a ver", min_value=1, value=24, step=1, key="calc_horas")
 
+    peso_col, altura_col = st.columns(2)
+    with peso_col:
+        peso = st.number_input("Peso (kg)", min_value=1.0, max_value=300.0, value=70.0, step=1.0, key="calc_peso")
+    with altura_col:
+        altura = st.number_input("Altura (cm)", min_value=50.0, max_value=250.0, value=170.0, step=1.0, key="calc_altura")
+
     nivel = st.slider("Nivel de alerta (%)", 5, 90, int(med["nivel_minimo_pct"]), step=5, key="calc_nivel")
+    bmi = calcular_bmi(peso, altura)
 
     k = constante_eliminacion(vida_media)
     tiempos = np.linspace(0, horas_totales, 200)
@@ -1307,21 +1323,28 @@ def page_simulation(user):
     m1.metric("Velocidad de descenso", f"{k:.4f}")
     m2.metric("Tiempo de eliminación", f"{vida_media:.2f} h")
     m3.metric("Tiempo hasta el nivel de alerta", f"{t_min:.2f} h" if t_min else "No calculable")
+    if bmi is not None:
+        st.caption(f"Contexto corporal: {peso:.0f} kg, {altura:.0f} cm, IMC {bmi:.1f} kg/m².")
+    else:
+        st.caption("Puedes agregar peso y altura para complementar la simulación con contexto corporal.")
     if current_concentration is not None:
         st.metric("Concentración actual estimada", f"{current_concentration:.2f} mg")
         st.caption(f"Basada en la última dosis registrada hace {elapsed_h:.1f} horas.")
     else:
-        st.info("Registra una dosis tomada para usar esa referencia en la simulación actual.")
+        st.caption("Registra una dosis tomada para usar esa referencia en la simulación actual.")
 
     st.subheader("Gráfico de concentración")
+    st.caption("El gráfico se actualiza automáticamente al cambiar los valores.")
     fig1, ax1 = plt.subplots()
     ax1.plot(tiempos, conc)
     ax1.axhline(c0 * nivel / 100, linestyle="--")
     ax1.set_xlabel("Tiempo (horas)")
     ax1.set_ylabel("Concentración estimada (mg)")
     ax1.set_title("Disminución de la concentración")
+    if bmi is not None:
+        ax1.text(0.02, 0.95, f"IMC: {bmi:.1f}", transform=ax1.transAxes, fontsize=9, va="top", bbox=dict(boxstyle="round", facecolor="white", alpha=0.7))
     ax1.grid(True)
-    st.pyplot(fig1)
+    st.pyplot(fig1, clear_figure=True)
 
     st.subheader("Gráfico de la derivada")
     fig2, ax2 = plt.subplots()
@@ -1330,7 +1353,7 @@ def page_simulation(user):
     ax2.set_ylabel("C'(t)")
     ax2.set_title("Velocidad de disminución")
     ax2.grid(True)
-    st.pyplot(fig2)
+    st.pyplot(fig2, clear_figure=True)
 
     df = pd.DataFrame({
         "Tiempo (horas)": tiempos,
