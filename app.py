@@ -96,6 +96,21 @@ st.markdown(
     }
     .danger-text { color: #b91c1c; font-weight: 700; }
     .ok-text { color: #166534; font-weight: 700; }
+    div[data-testid="stAlert"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 0 0.6rem 0 !important;
+    }
+    div[data-testid="stAlert"] > div {
+        background: transparent !important;
+        border: none !important;
+        color: inherit !important;
+    }
+    div[data-testid="stAlert"] svg {
+        display: none !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
