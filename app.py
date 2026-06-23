@@ -52,6 +52,32 @@ st.markdown(
         box-shadow: 0 2px 12px rgba(0,0,0,0.04);
         margin-bottom: 0.75rem;
     }
+    .hero-banner {
+        background: linear-gradient(90deg, #2563eb 0%, #4f46e5 100%);
+        color: white;
+        padding: 1.1rem 1.2rem;
+        border-radius: 16px;
+        margin-bottom: 1rem;
+        box-shadow: 0 8px 24px rgba(37,99,235,0.18);
+    }
+    .hero-title {
+        font-size: 1.35rem;
+        font-weight: 800;
+        margin-bottom: 0.2rem;
+    }
+    .hero-subtitle {
+        font-size: 0.95rem;
+        opacity: 0.95;
+    }
+    .info-pill {
+        display: inline-block;
+        margin-top: 0.45rem;
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.2);
+        font-size: 0.8rem;
+        font-weight: 700;
+    }
     .badge-pending {
         background: #fff3cd;
         color: #7a5a00;
@@ -699,27 +725,45 @@ def next_dose_summary(schedule):
     return "Sin horarios"
 
 
+def render_banner(title, subtitle, badge=None):
+    badge_html = f"<div class='info-pill'>{badge}</div>" if badge else ""
+    st.markdown(
+        f"""
+        <div class='hero-banner'>
+            <div class='hero-title'>{title}</div>
+            <div class='hero-subtitle'>{subtitle}</div>
+            {badge_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ============================================================
 # PÁGINA DE AUTENTICACIÓN
 # ============================================================
 
 def auth_page():
+    render_banner(
+        "Pastillero inteligente",
+        "Organiza medicamentos, horarios y mensajes de forma simple y local.",
+        "Acceso rápido",
+    )
     st.markdown(f"<div class='main-title'>💊 {APP_TITLE}</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='subtle'>Versión local con Streamlit + SQLite. No usa Firebase, Vercel ni servicios externos.</div>",
+        "<div class='subtle'>Tu cuenta y tus datos se guardan en este equipo con SQLite, sin servicios externos.</div>",
         unsafe_allow_html=True,
     )
-    st.info(
-        "Prototipo educativo: permite registrar farmacias, medicamentos, horarios, mensajes y simular concentración usando derivadas."
-    )
+    st.info("Inicia sesión o crea una cuenta para empezar a organizar el tratamiento de forma sencilla.")
 
     tab_login, tab_register = st.tabs(["Iniciar sesión", "Crear cuenta"])
 
     with tab_login:
+        st.caption("Ingresa con tu correo y contraseña para continuar.")
         with st.form("login_form"):
-            email = st.text_input("Correo", placeholder="farmacia@ejemplo.cl", key="login_email")
+            email = st.text_input("Correo electrónico", placeholder="farmacia@ejemplo.cl", key="login_email")
             password = st.text_input("Contraseña", type="password", key="login_password")
-            submitted = st.form_submit_button("Entrar")
+            submitted = st.form_submit_button("Ingresar")
 
         if submitted:
             user = verify_login(email, password)
@@ -731,8 +775,8 @@ def auth_page():
             else:
                 st.error("Credenciales no válidas.")
 
-        with st.expander("Usuario de prueba"):
-            st.write("Puedes crear una cuenta propia. Si quieres una rápida, usa el botón de abajo.")
+        with st.expander("Cuenta de prueba"):
+            st.write("Si quieres probar la app rápidamente, puedes usar una cuenta de ejemplo.")
             if st.button("Crear usuario demo", key="create_demo_user"):
                 demo_email = "demo@farmacia.cl"
                 if not get_user_by_email(demo_email):
@@ -747,14 +791,15 @@ def auth_page():
                 st.success("Usuario demo listo. Correo: demo@farmacia.cl / Contraseña: 12345678")
 
     with tab_register:
+        st.caption("Crea tu cuenta en minutos y empieza a gestionar tus medicamentos.")
         with st.form("register_form"):
             rut = st.text_input("RUT", placeholder="12.345.678-9", key="register_rut")
-            nombre = st.text_input("Nombre farmacia o usuario", placeholder="Farmacia Central", key="register_name")
-            email = st.text_input("Correo", placeholder="farmacia@correo.cl", key="register_email")
+            nombre = st.text_input("Nombre de la farmacia o usuario", placeholder="Farmacia Central", key="register_name")
+            email = st.text_input("Correo electrónico", placeholder="farmacia@correo.cl", key="register_email")
             telefono = st.text_input("Teléfono", placeholder="+56 9 0000 0000", key="register_phone")
             direccion = st.text_input("Dirección", placeholder="Dirección de la farmacia", key="register_address")
             password = st.text_input("Contraseña", type="password", key="register_password")
-            submitted = st.form_submit_button("Crear cuenta")
+            submitted = st.form_submit_button("Crear cuenta ahora")
 
         if submitted:
             if len(rut.strip()) < 3:
@@ -945,8 +990,9 @@ def validate_medication(data):
 
 
 def page_medications(user):
+    render_banner("Medicamentos", "Guarda tus medicamentos con datos básicos y mantén todo ordenado.", "Paso 1")
     st.header("Medicamentos")
-    st.caption("CRUD de medicamentos equivalente al panel original, pero guardado en SQLite")
+    st.caption("Agrega un medicamento y deja listo el seguimiento para el resto del proceso.")
 
     meds = list_medications(user["id"])
     df = medication_dataframe(meds)
@@ -1003,8 +1049,9 @@ def page_medications(user):
 
 
 def page_schedules(user):
+    render_banner("Horarios", "Define la primera toma y el sistema genera el resto automáticamente.", "Paso 2")
     st.header("Horarios")
-    st.caption("Calcula horarios diarios a partir de un primer horario, intervalo y dosis por día")
+    st.caption("Hazlo simple: elige el medicamento y define cuándo empieza la toma.")
 
     meds = list_medications(user["id"])
     schedules = list_schedules(user["id"])
@@ -1014,6 +1061,8 @@ def page_schedules(user):
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("No hay horarios registrados.")
+
+    st.info("Luego podrás marcar si la dosis se tomó o se omitió desde la misma vista.")
 
     if schedules:
         st.subheader("Próxima dosis")
@@ -1069,7 +1118,7 @@ def page_schedules(user):
         c1, c2 = st.columns(2)
         with c1:
             primer = st.time_input(
-                "Primer horario",
+                "Primera toma",
                 value=datetime.strptime(default.get("primer_horario", "08:00"), "%H:%M").time()
                 if default.get("primer_horario")
                 else time(8, 0),
@@ -1077,7 +1126,7 @@ def page_schedules(user):
             )
         with c2:
             intervalo = st.number_input(
-                "Intervalo entre dosis (horas)",
+                "Cada cuántas horas se toma",
                 min_value=1.0,
                 max_value=24.0,
                 value=float(default.get("intervalo_horas", 8.0)),
@@ -1105,7 +1154,7 @@ def page_schedules(user):
         else:
             with st.form("create_schedule_form"):
                 data = schedule_inputs(prefix="create_schedule")
-                submitted = st.form_submit_button("Calcular y guardar horarios")
+                submitted = st.form_submit_button("Guardar horario")
             if submitted:
                 create_schedule(user["id"], data)
                 st.success("Horario guardado correctamente.")
@@ -1139,10 +1188,13 @@ def page_schedules(user):
 
 
 def page_messages(user):
-    st.header("Mensajes y respuestas")
-    st.caption("Gestión local de mensajes. La respuesta queda guardada; no se envía correo externo.")
+    render_banner("Mensajes", "Registra consultas o avisos y deja la respuesta guardada en la app.", "Paso 3")
+    st.header("Mensajes")
+    st.caption("Guarda mensajes simples y responde cuando sea necesario.")
 
     messages = list_messages(user["id"])
+
+    st.info("No se envía un correo real; todo queda registrado dentro de esta herramienta.")
 
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -1208,9 +1260,10 @@ def page_messages(user):
                 st.rerun()
 
 
-def page_calculus(user):
-    st.header("Cálculo diferencial")
-    st.caption("Simulación de concentración del medicamento y su derivada")
+def page_simulation(user):
+    render_banner("Simulación rápida", "Mira de forma simple cómo baja la concentración del medicamento con el tiempo.", "Comprende el efecto")
+    st.header("Simulación rápida")
+    st.caption("Completa solo unos datos para ver una idea sencilla del comportamiento del medicamento.")
 
     meds = list_medications(user["id"])
     if not meds:
@@ -1221,18 +1274,17 @@ def page_calculus(user):
     selected_label = st.selectbox("Medicamento", list(med_options.keys()), key="calc_medication")
     med = med_options[selected_label]
 
-    st.latex(r"C(t)=C_0 e^{-kt}")
-    st.latex(r"C'(t)=-kC_0e^{-kt}")
+    st.info("Esta simulación es educativa y ayuda a entender el descenso del medicamento, no reemplaza indicaciones médicas.")
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        c0 = st.number_input("Concentración inicial / dosis (mg)", min_value=1.0, value=float(med["dosis_mg"]), step=50.0, key="calc_c0")
+        c0 = st.number_input("Dosis inicial (mg)", min_value=1.0, value=float(med["dosis_mg"]), step=50.0, key="calc_c0")
     with c2:
-        vida_media = st.number_input("Vida media (h)", min_value=0.1, value=float(med["vida_media_horas"]), step=0.5, key="calc_vida_media")
+        vida_media = st.number_input("Tiempo de eliminación (h)", min_value=0.1, value=float(med["vida_media_horas"]), step=0.5, key="calc_vida_media")
     with c3:
-        horas_totales = st.number_input("Horas a simular", min_value=1, value=24, step=1, key="calc_horas")
+        horas_totales = st.number_input("Horas a ver", min_value=1, value=24, step=1, key="calc_horas")
 
-    nivel = st.slider("Nivel mínimo de concentración (%)", 5, 90, int(med["nivel_minimo_pct"]), step=5, key="calc_nivel")
+    nivel = st.slider("Nivel de alerta (%)", 5, 90, int(med["nivel_minimo_pct"]), step=5, key="calc_nivel")
 
     k = constante_eliminacion(vida_media)
     tiempos = np.linspace(0, horas_totales, 200)
@@ -1252,9 +1304,9 @@ def page_calculus(user):
         current_concentration = None
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Constante k", f"{k:.4f}")
-    m2.metric("Vida media", f"{vida_media:.2f} h")
-    m3.metric("Tiempo hasta nivel mínimo", f"{t_min:.2f} h" if t_min else "No calculable")
+    m1.metric("Velocidad de descenso", f"{k:.4f}")
+    m2.metric("Tiempo de eliminación", f"{vida_media:.2f} h")
+    m3.metric("Tiempo hasta el nivel de alerta", f"{t_min:.2f} h" if t_min else "No calculable")
     if current_concentration is not None:
         st.metric("Concentración actual estimada", f"{current_concentration:.2f} mg")
         st.caption(f"Basada en la última dosis registrada hace {elapsed_h:.1f} horas.")
@@ -1298,35 +1350,6 @@ def page_calculus(user):
     )
 
 
-def page_about():
-    st.header("Acerca del proyecto")
-    st.markdown(
-        """
-        Esta aplicación replica las funciones principales de una plataforma web para farmacias, pero en una versión local y simple de levantar.
-
-        **Funciones incluidas:**
-        - Registro e inicio de sesión local.
-        - Perfil del cliente/farmacia.
-        - CRUD de medicamentos.
-        - CRUD de horarios de toma.
-        - Gestión de mensajes y respuestas.
-        - Simulación matemática con derivadas para el proyecto de Cálculo Diferencial.
-
-        **Tecnologías usadas:**
-        - Streamlit para la interfaz.
-        - SQLite para guardar datos.
-        - Pandas, NumPy y Matplotlib para tablas, cálculos y gráficos.
-
-        **Modelo matemático:**
-        """
-    )
-    st.latex(r"C(t)=C_0e^{-kt}")
-    st.latex(r"C'(t)=-kC_0e^{-kt}")
-    st.markdown(
-        "La derivada representa la velocidad de disminución de la concentración del medicamento en el tiempo."
-    )
-
-
 # ============================================================
 # BOOTSTRAP
 # ============================================================
@@ -1343,6 +1366,7 @@ def main():
         st.session_state.clear()
         st.rerun()
 
+    render_banner("Panel principal", "Revisa tu información en un solo lugar y sigue cada paso con claridad.", "Todo listo")
     st.sidebar.title("💊 CUTSA Local")
     st.sidebar.write(f"**Usuario:** {user['nombre']}")
     st.sidebar.caption(user["email"])
@@ -1355,8 +1379,7 @@ def main():
             "Medicamentos",
             "Horarios",
             "Mensajes",
-            "Cálculo diferencial",
-            "Acerca del proyecto",
+            "Simulación rápida",
         ],
     )
 
@@ -1374,10 +1397,8 @@ def main():
         page_schedules(user)
     elif menu == "Mensajes":
         page_messages(user)
-    elif menu == "Cálculo diferencial":
-        page_calculus(user)
-    elif menu == "Acerca del proyecto":
-        page_about()
+    elif menu == "Simulación rápida":
+        page_simulation(user)
 
 
 if __name__ == "__main__":
