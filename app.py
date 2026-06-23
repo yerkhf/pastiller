@@ -19,7 +19,7 @@ import streamlit as st
 # ============================================================
 
 APP_TITLE = "CUTSA - Pastillero Inteligente"
-DB_PATH = Path("pastillero.db")
+DB_PATH = Path(__file__).with_name("pastillero.db")
 
 st.set_page_config(
     page_title=APP_TITLE,
