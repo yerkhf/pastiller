@@ -8,6 +8,8 @@ Versión simple en Streamlit + SQLite. No usa Firebase, Vercel ni Mailtrap.
 - Perfil de cliente/farmacia.
 - CRUD de medicamentos.
 - CRUD de horarios.
+- Registro local de dosis tomadas u omitidas.
+- Vista de próxima dosis y estado de recordatorios básicos.
 - Gestión de mensajes y respuestas.
 - Simulación de concentración de medicamento con derivadas.
 

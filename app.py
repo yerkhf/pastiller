@@ -5,6 +5,7 @@ import math
 import re
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, date, time, timedelta
 from pathlib import Path
 
@@ -78,10 +79,18 @@ st.markdown(
 # BASE DE DATOS
 # ============================================================
 
+@contextmanager
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db():
@@ -153,6 +162,23 @@ def init_db():
                 created_at TEXT NOT NULL,
                 responded_at TEXT,
                 FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dose_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                schedule_id INTEGER NOT NULL,
+                medication_id INTEGER NOT NULL,
+                fecha TEXT NOT NULL,
+                hora TEXT NOT NULL,
+                estado TEXT NOT NULL DEFAULT 'tomada',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(schedule_id) REFERENCES schedules(id),
+                FOREIGN KEY(medication_id) REFERENCES medications(id)
             )
             """
         )
@@ -448,6 +474,55 @@ def delete_message(user_id, msg_id):
 
 
 # ============================================================
+# REGISTRO DE DOSIS TOMADAS / OMITIDAS
+# ============================================================
+
+def create_dose_log(user_id, schedule_id, medication_id, estado, fecha=None, hora=None):
+    now = datetime.now()
+    fecha_text = fecha or now.strftime("%Y-%m-%d")
+    hora_text = hora or now.strftime("%H:%M")
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO dose_logs (user_id, schedule_id, medication_id, fecha, hora, estado, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, schedule_id, medication_id, fecha_text, hora_text, estado, now_text()),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def list_dose_logs(user_id):
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT dl.*, m.nombre AS medicamento
+            FROM dose_logs dl
+            JOIN medications m ON m.id = dl.medication_id
+            WHERE dl.user_id=?
+            ORDER BY dl.id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_latest_dose_log(user_id, medication_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM dose_logs
+            WHERE user_id=? AND medication_id=?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id, medication_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ============================================================
 # CÁLCULO DIFERENCIAL
 # ============================================================
 
@@ -564,6 +639,66 @@ def messages_dataframe(messages):
     )
 
 
+def dose_logs_dataframe(dose_logs):
+    if not dose_logs:
+        return pd.DataFrame()
+    df = pd.DataFrame(dose_logs)
+    keep = ["id", "medicamento", "fecha", "hora", "estado", "created_at"]
+    return df[keep].rename(
+        columns={
+            "id": "ID",
+            "medicamento": "Medicamento",
+            "fecha": "Fecha",
+            "hora": "Hora",
+            "estado": "Estado",
+            "created_at": "Registrado",
+        }
+    )
+
+
+def parse_schedule_horarios(horarios):
+    parsed = []
+    for item in horarios or []:
+        text = str(item).strip()
+        if not text:
+            continue
+        if text.endswith("(+1 día)"):
+            text = text.replace(" (+1 día)", "")
+        parsed.append(text)
+    return parsed
+
+
+def next_dose_summary(schedule):
+    try:
+        horarios = parse_schedule_horarios(schedule.get("horarios") or [])
+    except Exception:
+        horarios = []
+    if not horarios:
+        return "Sin horarios"
+
+    now = datetime.now()
+    today = now.date()
+    for entry in horarios:
+        try:
+            hour_text = entry.split(" ", 1)[0]
+            hh, mm = map(int, hour_text.split(":"))
+            candidate_dt = datetime.combine(today, time(hour=hh, minute=mm))
+            if candidate_dt >= now:
+                label = "Hoy" if candidate_dt.date() == today else "Mañana"
+                return f"{label} a las {candidate_dt.strftime('%H:%M')}"
+        except ValueError:
+            continue
+
+    if horarios:
+        try:
+            hh, mm = map(int, horarios[0].split(":"))
+            candidate_dt = datetime.combine(today + timedelta(days=1), time(hour=hh, minute=mm))
+            return f"Mañana a las {candidate_dt.strftime('%H:%M')}"
+        except ValueError:
+            return horarios[0]
+    return "Sin horarios"
+
+
 # ============================================================
 # PÁGINA DE AUTENTICACIÓN
 # ============================================================
@@ -582,8 +717,8 @@ def auth_page():
 
     with tab_login:
         with st.form("login_form"):
-            email = st.text_input("Correo", placeholder="farmacia@ejemplo.cl")
-            password = st.text_input("Contraseña", type="password")
+            email = st.text_input("Correo", placeholder="farmacia@ejemplo.cl", key="login_email")
+            password = st.text_input("Contraseña", type="password", key="login_password")
             submitted = st.form_submit_button("Entrar")
 
         if submitted:
@@ -598,7 +733,7 @@ def auth_page():
 
         with st.expander("Usuario de prueba"):
             st.write("Puedes crear una cuenta propia. Si quieres una rápida, usa el botón de abajo.")
-            if st.button("Crear usuario demo"):
+            if st.button("Crear usuario demo", key="create_demo_user"):
                 demo_email = "demo@farmacia.cl"
                 if not get_user_by_email(demo_email):
                     create_user(
@@ -613,12 +748,12 @@ def auth_page():
 
     with tab_register:
         with st.form("register_form"):
-            rut = st.text_input("RUT", placeholder="12.345.678-9")
-            nombre = st.text_input("Nombre farmacia o usuario", placeholder="Farmacia Central")
-            email = st.text_input("Correo", placeholder="farmacia@correo.cl")
-            telefono = st.text_input("Teléfono", placeholder="+56 9 0000 0000")
-            direccion = st.text_input("Dirección", placeholder="Dirección de la farmacia")
-            password = st.text_input("Contraseña", type="password")
+            rut = st.text_input("RUT", placeholder="12.345.678-9", key="register_rut")
+            nombre = st.text_input("Nombre farmacia o usuario", placeholder="Farmacia Central", key="register_name")
+            email = st.text_input("Correo", placeholder="farmacia@correo.cl", key="register_email")
+            telefono = st.text_input("Teléfono", placeholder="+56 9 0000 0000", key="register_phone")
+            direccion = st.text_input("Dirección", placeholder="Dirección de la farmacia", key="register_address")
+            password = st.text_input("Contraseña", type="password", key="register_password")
             submitted = st.form_submit_button("Crear cuenta")
 
         if submitted:
@@ -662,7 +797,7 @@ def page_dashboard(user):
     st.divider()
     col_a, col_b = st.columns(2)
     with col_a:
-        st.subheader("Próximos horarios registrados")
+        st.subheader("Próximas dosis")
         if schedules:
             for sch in schedules[:5]:
                 st.markdown(
@@ -670,6 +805,7 @@ def page_dashboard(user):
                     <div class='card'>
                     <b>{sch['medicamento']}</b><br>
                     Paciente: {sch.get('paciente') or '-'}<br>
+                    <span class='badge-pending'>Próxima dosis: {next_dose_summary(sch)}</span><br>
                     Horarios: {', '.join(sch['horarios'])}
                     </div>
                     """,
@@ -700,10 +836,10 @@ def page_profile(user):
     st.caption("Datos del cliente/farmacia guardados localmente")
 
     with st.form("profile_form"):
-        nombre = st.text_input("Nombre", value=user.get("nombre", ""))
-        email = st.text_input("Correo", value=user.get("email", ""), disabled=True)
-        telefono = st.text_input("Teléfono", value=user.get("telefono", "") or "")
-        direccion = st.text_input("Dirección", value=user.get("direccion", "") or "")
+        nombre = st.text_input("Nombre", value=user.get("nombre", ""), key="profile_name")
+        email = st.text_input("Correo", value=user.get("email", ""), disabled=True, key="profile_email")
+        telefono = st.text_input("Teléfono", value=user.get("telefono", "") or "", key="profile_phone")
+        direccion = st.text_input("Dirección", value=user.get("direccion", "") or "", key="profile_address")
         submitted = st.form_submit_button("Actualizar perfil")
 
     if submitted:
@@ -716,10 +852,19 @@ def page_profile(user):
             st.rerun()
 
 
-def medication_form(default=None):
+def medication_form(default=None, prefix="med"):
     default = default or {}
-    nombre = st.text_input("Nombre del medicamento", value=default.get("nombre", ""))
-    descripcion = st.text_area("Descripción / uso", value=default.get("descripcion", ""), height=90)
+    nombre = st.text_input(
+        "Nombre del medicamento",
+        value=default.get("nombre", ""),
+        key=f"{prefix}_name",
+    )
+    descripcion = st.text_area(
+        "Descripción / uso",
+        value=default.get("descripcion", ""),
+        height=90,
+        key=f"{prefix}_description",
+    )
 
     c1, c2 = st.columns(2)
     with c1:
@@ -728,12 +873,14 @@ def medication_form(default=None):
             min_value=1.0,
             value=float(default.get("dosis_mg", 500.0)),
             step=50.0,
+            key=f"{prefix}_dosis_mg",
         )
         total_dosis = st.number_input(
             "Dosis totales disponibles",
             min_value=1,
             value=int(default.get("total_dosis", 20)),
             step=1,
+            key=f"{prefix}_total_dosis",
         )
         dosis_dia = st.number_input(
             "Dosis por día",
@@ -741,6 +888,7 @@ def medication_form(default=None):
             max_value=24,
             value=int(default.get("dosis_dia", 3)),
             step=1,
+            key=f"{prefix}_dosis_dia",
         )
     with c2:
         vida_media_horas = st.number_input(
@@ -748,6 +896,7 @@ def medication_form(default=None):
             min_value=0.1,
             value=float(default.get("vida_media_horas", 4.0)),
             step=0.5,
+            key=f"{prefix}_vida_media",
         )
         nivel_minimo_pct = st.slider(
             "Nivel mínimo de concentración (%)",
@@ -755,10 +904,19 @@ def medication_form(default=None):
             max_value=90,
             value=int(default.get("nivel_minimo_pct", 25)),
             step=5,
+            key=f"{prefix}_nivel_minimo",
         )
-        foto_url = st.text_input("URL de foto (opcional)", value=default.get("foto_url", "") or "")
+        foto_url = st.text_input(
+            "URL de foto (opcional)",
+            value=default.get("foto_url", "") or "",
+            key=f"{prefix}_foto_url",
+        )
 
-    uploaded = st.file_uploader("Subir foto local opcional", type=["png", "jpg", "jpeg"])
+    uploaded = st.file_uploader(
+        "Subir foto local opcional",
+        type=["png", "jpg", "jpeg"],
+        key=f"{prefix}_upload",
+    )
     foto_data = default.get("foto_data")
     if uploaded:
         foto_data = file_to_data_url(uploaded)
@@ -801,7 +959,7 @@ def page_medications(user):
 
     with tab_create:
         with st.form("create_med_form"):
-            data = medication_form()
+            data = medication_form(prefix="create_med")
             submitted = st.form_submit_button("Guardar medicamento")
         if submitted:
             error = validate_medication(data)
@@ -817,10 +975,10 @@ def page_medications(user):
             st.info("Primero debes crear un medicamento.")
         else:
             options = {f"{m['id']} - {m['nombre']}": m["id"] for m in meds}
-            selected_label = st.selectbox("Selecciona medicamento", list(options.keys()))
+            selected_label = st.selectbox("Selecciona medicamento", list(options.keys()), key="edit_med_select")
             selected = get_medication(user["id"], options[selected_label])
             with st.form("edit_med_form"):
-                data = medication_form(selected)
+                data = medication_form(selected, prefix="edit_med")
                 submitted = st.form_submit_button("Actualizar medicamento")
             if submitted:
                 error = validate_medication(data)
@@ -857,9 +1015,41 @@ def page_schedules(user):
     else:
         st.info("No hay horarios registrados.")
 
+    if schedules:
+        st.subheader("Próxima dosis")
+        cols = st.columns(min(3, len(schedules)))
+        for col, sch in zip(cols, schedules[:3]):
+            col.metric(sch["medicamento"], next_dose_summary(sch), delta=sch.get("paciente") or "Sin paciente")
+
+    dose_logs = list_dose_logs(user["id"])
+    if dose_logs:
+        st.subheader("Historial de dosis")
+        st.dataframe(dose_logs_dataframe(dose_logs[:10]), use_container_width=True, hide_index=True)
+
     tab_create, tab_edit, tab_delete = st.tabs(["Crear", "Editar", "Eliminar"])
 
-    def schedule_inputs(default=None):
+    st.subheader("Registro rápido de dosis")
+    if schedules:
+        dose_options = {f"{s['id']} - {s['medicamento']} - {s.get('paciente') or 'Sin paciente'}": s for s in schedules}
+        selected_dose_label = st.selectbox("Selecciona un horario para registrar", list(dose_options.keys()), key="dose_log_schedule")
+        col_t, col_o = st.columns(2)
+        with col_t:
+            if st.button("Marcar dosis como tomada", key="mark_taken"):
+                selected_schedule = dose_options[selected_dose_label]
+                create_dose_log(user["id"], selected_schedule["id"], selected_schedule["medication_id"], "tomada")
+                st.success("Dosis registrada como tomada.")
+        with col_o:
+            if st.button("Marcar dosis como omitida", key="mark_omitted"):
+                selected_schedule = dose_options[selected_dose_label]
+                create_dose_log(user["id"], selected_schedule["id"], selected_schedule["medication_id"], "omitida")
+                st.success("Dosis registrada como omitida.")
+        st.caption("Se guarda localmente en SQLite con fecha y hora del sistema.")
+    else:
+        st.info("No hay horarios disponibles para registrar dosis.")
+
+    st.divider()
+
+    def schedule_inputs(default=None, prefix="schedule"):
         default = default or {}
         med_options = {f"{m['id']} - {m['nombre']}": m for m in meds}
         default_med_label = None
@@ -869,9 +1059,13 @@ def page_schedules(user):
                     default_med_label = label
         labels = list(med_options.keys())
         index = labels.index(default_med_label) if default_med_label in labels else 0
-        selected_label = st.selectbox("Medicamento", labels, index=index)
+        selected_label = st.selectbox("Medicamento", labels, index=index, key=f"{prefix}_medication")
         med = med_options[selected_label]
-        paciente = st.text_input("Paciente o correo del paciente", value=default.get("paciente", "") or "")
+        paciente = st.text_input(
+            "Paciente o correo del paciente",
+            value=default.get("paciente", "") or "",
+            key=f"{prefix}_patient",
+        )
         c1, c2 = st.columns(2)
         with c1:
             primer = st.time_input(
@@ -879,6 +1073,7 @@ def page_schedules(user):
                 value=datetime.strptime(default.get("primer_horario", "08:00"), "%H:%M").time()
                 if default.get("primer_horario")
                 else time(8, 0),
+                key=f"{prefix}_first_time",
             )
         with c2:
             intervalo = st.number_input(
@@ -887,6 +1082,7 @@ def page_schedules(user):
                 max_value=24.0,
                 value=float(default.get("intervalo_horas", 8.0)),
                 step=1.0,
+                key=f"{prefix}_interval",
             )
         primer_text = primer.strftime("%H:%M")
         horarios = generar_horarios(primer_text, intervalo, med["dosis_dia"])
@@ -908,7 +1104,7 @@ def page_schedules(user):
             st.info("Primero debes crear medicamentos.")
         else:
             with st.form("create_schedule_form"):
-                data = schedule_inputs()
+                data = schedule_inputs(prefix="create_schedule")
                 submitted = st.form_submit_button("Calcular y guardar horarios")
             if submitted:
                 create_schedule(user["id"], data)
@@ -920,10 +1116,10 @@ def page_schedules(user):
             st.info("No hay horarios para editar.")
         else:
             options = {f"{s['id']} - {s['paciente'] or 'Sin paciente'} - {s['medicamento']}": s for s in schedules}
-            selected_label = st.selectbox("Selecciona horario", list(options.keys()))
+            selected_label = st.selectbox("Selecciona horario", list(options.keys()), key="edit_schedule_select")
             selected = options[selected_label]
             with st.form("edit_schedule_form"):
-                data = schedule_inputs(selected)
+                data = schedule_inputs(selected, prefix="edit_schedule")
                 submitted = st.form_submit_button("Actualizar horario")
             if submitted:
                 update_schedule(user["id"], selected["id"], data)
@@ -952,7 +1148,7 @@ def page_messages(user):
     with c1:
         st.subheader("Mensajes registrados")
     with c2:
-        if st.button("Crear mensaje demo"):
+        if st.button("Crear mensaje demo", key="create_message_demo"):
             create_message(user["id"], "paciente.demo@correo.cl", "Hola, ¿puedo tomar el medicamento después de comer?")
             st.success("Mensaje demo creado.")
             st.rerun()
@@ -967,8 +1163,8 @@ def page_messages(user):
 
     with tab_create:
         with st.form("create_message_form"):
-            email = st.text_input("Correo del paciente", placeholder="paciente@correo.cl")
-            texto = st.text_area("Mensaje", placeholder="Escribe una consulta o mensaje", height=100)
+            email = st.text_input("Correo del paciente", placeholder="paciente@correo.cl", key="message_email")
+            texto = st.text_area("Mensaje", placeholder="Escribe una consulta o mensaje", height=100, key="message_text")
             submitted = st.form_submit_button("Guardar mensaje")
         if submitted:
             if not valid_email(email):
@@ -986,11 +1182,11 @@ def page_messages(user):
             st.info("No hay mensajes pendientes.")
         else:
             options = {f"{m['id']} - {m['usuario_email']}: {m['texto'][:50]}": m for m in pending}
-            selected_label = st.selectbox("Mensaje pendiente", list(options.keys()))
+            selected_label = st.selectbox("Mensaje pendiente", list(options.keys()), key="pending_message_select")
             selected = options[selected_label]
             st.write(f"**Mensaje:** {selected['texto']}")
             with st.form("reply_form"):
-                respuesta = st.text_area("Respuesta", height=120)
+                respuesta = st.text_area("Respuesta", height=120, key="reply_text")
                 submitted = st.form_submit_button("Guardar respuesta")
             if submitted:
                 if not respuesta.strip():
@@ -1022,7 +1218,7 @@ def page_calculus(user):
         return
 
     med_options = {f"{m['id']} - {m['nombre']}": m for m in meds}
-    selected_label = st.selectbox("Medicamento", list(med_options.keys()))
+    selected_label = st.selectbox("Medicamento", list(med_options.keys()), key="calc_medication")
     med = med_options[selected_label]
 
     st.latex(r"C(t)=C_0 e^{-kt}")
@@ -1030,13 +1226,13 @@ def page_calculus(user):
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        c0 = st.number_input("Concentración inicial / dosis (mg)", min_value=1.0, value=float(med["dosis_mg"]), step=50.0)
+        c0 = st.number_input("Concentración inicial / dosis (mg)", min_value=1.0, value=float(med["dosis_mg"]), step=50.0, key="calc_c0")
     with c2:
-        vida_media = st.number_input("Vida media (h)", min_value=0.1, value=float(med["vida_media_horas"]), step=0.5)
+        vida_media = st.number_input("Vida media (h)", min_value=0.1, value=float(med["vida_media_horas"]), step=0.5, key="calc_vida_media")
     with c3:
-        horas_totales = st.number_input("Horas a simular", min_value=1, value=24, step=1)
+        horas_totales = st.number_input("Horas a simular", min_value=1, value=24, step=1, key="calc_horas")
 
-    nivel = st.slider("Nivel mínimo de concentración (%)", 5, 90, int(med["nivel_minimo_pct"]), step=5)
+    nivel = st.slider("Nivel mínimo de concentración (%)", 5, 90, int(med["nivel_minimo_pct"]), step=5, key="calc_nivel")
 
     k = constante_eliminacion(vida_media)
     tiempos = np.linspace(0, horas_totales, 200)
@@ -1044,10 +1240,26 @@ def page_calculus(user):
     der = derivada_concentracion(tiempos, c0, k)
     t_min = tiempo_hasta_nivel(nivel, k)
 
+    last_log = get_latest_dose_log(user["id"], med["id"])
+    if last_log:
+        try:
+            last_dt = datetime.fromisoformat(last_log["created_at"])
+            elapsed_h = max(0.0, (datetime.now() - last_dt).total_seconds() / 3600)
+            current_concentration = concentracion(elapsed_h, c0, k)
+        except ValueError:
+            current_concentration = None
+    else:
+        current_concentration = None
+
     m1, m2, m3 = st.columns(3)
     m1.metric("Constante k", f"{k:.4f}")
     m2.metric("Vida media", f"{vida_media:.2f} h")
     m3.metric("Tiempo hasta nivel mínimo", f"{t_min:.2f} h" if t_min else "No calculable")
+    if current_concentration is not None:
+        st.metric("Concentración actual estimada", f"{current_concentration:.2f} mg")
+        st.caption(f"Basada en la última dosis registrada hace {elapsed_h:.1f} horas.")
+    else:
+        st.info("Registra una dosis tomada para usar esa referencia en la simulación actual.")
 
     st.subheader("Gráfico de concentración")
     fig1, ax1 = plt.subplots()
