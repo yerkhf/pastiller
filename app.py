@@ -96,19 +96,19 @@ st.markdown(
     }
     .danger-text { color: #b91c1c; font-weight: 700; }
     .ok-text { color: #166534; font-weight: 700; }
-    div[data-testid="stAlert"] {
+    div[data-testid="stAlert"], div[data-testid="stNotification"], div[data-testid="stToast"], div[data-testid="stMessage"] {
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
         padding: 0 !important;
         margin: 0 0 0.6rem 0 !important;
     }
-    div[data-testid="stAlert"] > div {
+    div[data-testid="stAlert"] > div, div[data-testid="stNotification"] > div, div[data-testid="stToast"] > div, div[data-testid="stMessage"] > div {
         background: transparent !important;
         border: none !important;
         color: inherit !important;
     }
-    div[data-testid="stAlert"] svg {
+    div[data-testid="stAlert"] svg, div[data-testid="stNotification"] svg, div[data-testid="stToast"] svg, div[data-testid="stMessage"] svg {
         display: none !important;
     }
     </style>
@@ -593,6 +593,15 @@ def calcular_bmi(peso_kg, altura_cm):
     if altura_m <= 0:
         return None
     return peso_kg / (altura_m * altura_m)
+
+
+def tiempo_optimo_siguiente_dosis(c0, k, nivel_objetivo_pct):
+    proporcion = float(nivel_objetivo_pct) / 100
+    if proporcion <= 0 or proporcion >= 1:
+        return None
+    if c0 <= 0 or k <= 0:
+        return None
+    return math.log(c0 / (c0 * proporcion)) / k
 
 
 # ============================================================
@@ -1315,6 +1324,7 @@ def page_simulation(user):
         altura = st.number_input("Altura (cm)", min_value=50.0, max_value=250.0, value=170.0, step=1.0, key="calc_altura")
 
     nivel = st.slider("Nivel de alerta (%)", 5, 90, int(med["nivel_minimo_pct"]), step=5, key="calc_nivel")
+    nivel_objetivo = st.slider("Nivel objetivo para la siguiente dosis (%)", 10, 90, 50, step=5, key="calc_objetivo")
     bmi = calcular_bmi(peso, altura)
 
     k = constante_eliminacion(vida_media)
@@ -1322,6 +1332,7 @@ def page_simulation(user):
     conc = concentracion(tiempos, c0, k)
     der = derivada_concentracion(tiempos, c0, k)
     t_min = tiempo_hasta_nivel(nivel, k)
+    t_optimo = tiempo_optimo_siguiente_dosis(c0, k, nivel_objetivo)
 
     last_log = get_latest_dose_log(user["id"], med["id"])
     if last_log:
@@ -1338,6 +1349,10 @@ def page_simulation(user):
     m1.metric("Velocidad de descenso", f"{k:.4f}")
     m2.metric("Tiempo de eliminación", f"{vida_media:.2f} h")
     m3.metric("Tiempo hasta el nivel de alerta", f"{t_min:.2f} h" if t_min else "No calculable")
+    if t_optimo is not None:
+        st.metric("Momento óptimo para la siguiente dosis", f"{t_optimo:.2f} h")
+    else:
+        st.caption("No es posible calcular un punto óptimo con los valores actuales.")
     if bmi is not None:
         st.caption(f"Contexto corporal: {peso:.0f} kg, {altura:.0f} cm, IMC {bmi:.1f} kg/m².")
     else:
